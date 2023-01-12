@@ -202,6 +202,26 @@ impl<'a> Checker<'a> {
             .map(|index| &self.bindings[*index])
     }
 
+    pub fn resolve_call_path<'b>(&'a self, value: &'b Expr) -> Option<Vec<&'a str>>
+    where
+        'b: 'a,
+    {
+        let call_path = collect_call_paths(value);
+        if let Some(head) = call_path.first() {
+            if let Some(binding) = self.find_binding(head) {
+                if let BindingKind::Importation(.., name)
+                | BindingKind::SubmoduleImportation(name, ..)
+                | BindingKind::FromImportation(.., name) = &binding.kind
+                {
+                    let mut source_path: Vec<&str> = name.split('.').collect();
+                    source_path.extend(call_path.iter().skip(1));
+                    return Some(source_path);
+                }
+            }
+        }
+        None
+    }
+
     /// Return `true` if `member` is bound as a builtin.
     pub fn is_builtin(&self, member: &str) -> bool {
         self.find_binding(member).map_or(false, |binding| {
