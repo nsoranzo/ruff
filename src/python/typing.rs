@@ -2,7 +2,7 @@ use once_cell::sync::Lazy;
 use rustc_hash::{FxHashMap, FxHashSet};
 use rustpython_ast::{Expr, ExprKind};
 
-use crate::ast::helpers::{collect_call_paths, dealias_call_path, match_call_path};
+use crate::checkers::ast::Checker;
 
 // See: https://pypi.org/project/typing-extensions/
 pub static TYPING_EXTENSIONS: Lazy<FxHashSet<&'static str>> = Lazy::new(|| {
@@ -62,6 +62,7 @@ pub static TYPING_EXTENSIONS: Lazy<FxHashSet<&'static str>> = Lazy::new(|| {
 });
 
 // See: https://docs.python.org/3/library/typing.html
+// STOPSHIP(charlie): Break up the multi-segment modules.
 static SUBSCRIPTS: Lazy<FxHashMap<&'static str, Vec<&'static str>>> = Lazy::new(|| {
     let mut subscripts: FxHashMap<&'static str, Vec<&'static str>> = FxHashMap::default();
     for (module, name) in [
@@ -207,53 +208,51 @@ pub enum SubscriptKind {
     PEP593AnnotatedSubscript,
 }
 
-pub fn match_annotated_subscript<'a, F>(
-    expr: &Expr,
-    from_imports: &FxHashMap<&str, FxHashSet<&str>>,
-    import_aliases: &FxHashMap<&str, &str>,
-    typing_modules: impl Iterator<Item = &'a str>,
-    is_builtin: F,
-) -> Option<SubscriptKind>
-where
-    F: Fn(&str) -> bool,
-{
+pub fn match_annotated_subscript(checker: &Checker, expr: &Expr) -> Option<SubscriptKind> {
     if !matches!(
         expr.node,
         ExprKind::Name { .. } | ExprKind::Attribute { .. }
     ) {
         return None;
     }
-    let call_path = dealias_call_path(collect_call_paths(expr), import_aliases);
-    if let Some(member) = call_path.last() {
-        if let Some(modules) = SUBSCRIPTS.get(member) {
-            for module in modules {
-                if match_call_path(&call_path, module, member, from_imports)
-                    && (!module.is_empty() || is_builtin(member))
-                {
-                    return Some(SubscriptKind::AnnotatedSubscript);
+
+    checker
+        .resolve_call_path(expr)
+        .map(|call_path| {
+            if let Some(member) = call_path.last() {
+                if let Some(modules) = SUBSCRIPTS.get(member) {
+                    for module in modules {
+                        if call_path == [*module, member] {
+                            return Some(SubscriptKind::AnnotatedSubscript);
+                        }
+                    }
+                    for module in checker.settings.typing_modules.iter() {
+                        // STOPSHIP(charlie): Make this more efficient. Do it once.
+                        let mut target: Vec<_> = module.as_str().split('.').collect();
+                        target.push(member);
+                        if call_path == target {
+                            return Some(SubscriptKind::AnnotatedSubscript);
+                        }
+                    }
+                } else if let Some(modules) = PEP_593_SUBSCRIPTS.get(member) {
+                    for module in modules {
+                        if call_path == [*module, member] {
+                            return Some(SubscriptKind::PEP593AnnotatedSubscript);
+                        }
+                    }
+                    for module in checker.settings.typing_modules.iter() {
+                        // STOPSHIP(charlie): Make this more efficient. Do it once.
+                        let mut target: Vec<_> = module.as_str().split('.').collect();
+                        target.push(member);
+                        if call_path == target {
+                            return Some(SubscriptKind::PEP593AnnotatedSubscript);
+                        }
+                    }
                 }
             }
-            for module in typing_modules {
-                if match_call_path(&call_path, module, member, from_imports) {
-                    return Some(SubscriptKind::AnnotatedSubscript);
-                }
-            }
-        } else if let Some(modules) = PEP_593_SUBSCRIPTS.get(member) {
-            for module in modules {
-                if match_call_path(&call_path, module, member, from_imports)
-                    && (!module.is_empty() || is_builtin(member))
-                {
-                    return Some(SubscriptKind::PEP593AnnotatedSubscript);
-                }
-            }
-            for module in typing_modules {
-                if match_call_path(&call_path, module, member, from_imports) {
-                    return Some(SubscriptKind::PEP593AnnotatedSubscript);
-                }
-            }
-        }
-    }
-    None
+            None
+        })
+        .flatten()
 }
 
 // See: https://peps.python.org/pep-0585/
@@ -269,18 +268,10 @@ const PEP_585_BUILTINS_ELIGIBLE: &[(&str, &str)] = &[
 
 /// Returns `true` if `Expr` represents a reference to a typing object with a
 /// PEP 585 built-in.
-pub fn is_pep585_builtin(
-    expr: &Expr,
-    from_imports: &FxHashMap<&str, FxHashSet<&str>>,
-    import_aliases: &FxHashMap<&str, &str>,
-) -> bool {
-    let call_path = dealias_call_path(collect_call_paths(expr), import_aliases);
-    if !call_path.is_empty() {
-        for (module, member) in PEP_585_BUILTINS_ELIGIBLE {
-            if match_call_path(&call_path, module, member, from_imports) {
-                return true;
-            }
-        }
-    }
-    false
+pub fn is_pep585_builtin(checker: &Checker, expr: &Expr) -> bool {
+    checker.resolve_call_path(expr).map_or(false, |call_path| {
+        PEP_585_BUILTINS_ELIGIBLE
+            .iter()
+            .any(|(module, name)| call_path == [*module, *name])
+    })
 }

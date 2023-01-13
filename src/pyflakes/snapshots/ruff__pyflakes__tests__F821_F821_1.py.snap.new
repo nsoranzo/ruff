@@ -1,0 +1,36 @@
+---
+source: src/pyflakes/mod.rs
+assertion_line: 115
+expression: diagnostics
+---
+- kind:
+    UndefinedName: Model
+  location:
+    row: 11
+    column: 9
+  end_location:
+    row: 11
+    column: 16
+  fix: ~
+  parent: ~
+- kind:
+    UndefinedName: Model
+  location:
+    row: 18
+    column: 16
+  end_location:
+    row: 18
+    column: 23
+  fix: ~
+  parent: ~
+- kind:
+    UndefinedName: Model
+  location:
+    row: 24
+    column: 12
+  end_location:
+    row: 24
+    column: 19
+  fix: ~
+  parent: ~
+

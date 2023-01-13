@@ -11,7 +11,7 @@ use rustpython_parser::lexer;
 use rustpython_parser::lexer::Tok;
 use rustpython_parser::token::StringKind;
 
-use crate::ast::types::{Binding, BindingKind, Range, Scope};
+use crate::ast::types::{Binding, BindingKind, Range};
 use crate::source_code::{Generator, Locator, Stylist};
 
 /// Create an `Expr` with default location from an `ExprKind`.
@@ -90,28 +90,6 @@ pub fn dealias_call_path<'a>(
         call_path
     }
 }
-// pub fn resolve_call_path<'a, 'b>(
-//     scopes: impl Iterator<Item = &'a Scope>,
-//     value: &'b Expr,
-// ) -> Option<Vec<&'a str>>
-// where
-//     'b: 'a,
-// {
-//     let call_path = collect_call_paths(value);
-//     if let Some(head) = call_path.first() {
-//         if let Some(binding) = self.find_binding(head) {
-//             if let BindingKind::Importation(.., name)
-//             | BindingKind::SubmoduleImportation(name, ..)
-//             | BindingKind::FromImportation(.., name) = &binding.kind
-//             {
-//                 let mut source_path: Vec<&str> = name.split('.').collect();
-//                 source_path.extend(call_path.iter().skip(1));
-//                 return Some(source_path);
-//             }
-//         }
-//     }
-//     None
-// }
 
 /// Return `true` if the `Expr` is a reference to `${module}.${target}`.
 ///
@@ -808,158 +786,12 @@ impl<'a> SimpleCallArgs<'a> {
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
-    use rustc_hash::{FxHashMap, FxHashSet};
     use rustpython_ast::Location;
     use rustpython_parser::parser;
 
-    use crate::ast::helpers::{
-        else_range, identifier_range, match_module_member, match_trailing_content,
-    };
+    use crate::ast::helpers::{else_range, identifier_range, match_trailing_content};
     use crate::ast::types::Range;
     use crate::source_code::Locator;
-
-    #[test]
-    fn builtin() -> Result<()> {
-        let expr = parser::parse_expression("list", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "",
-            "list",
-            &FxHashMap::default(),
-            &FxHashMap::default(),
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn fully_qualified() -> Result<()> {
-        let expr = parser::parse_expression("typing.re.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::default(),
-            &FxHashMap::default(),
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn unimported() -> Result<()> {
-        let expr = parser::parse_expression("Match", "<filename>")?;
-        assert!(!match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::default(),
-            &FxHashMap::default(),
-        ));
-        let expr = parser::parse_expression("re.Match", "<filename>")?;
-        assert!(!match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::default(),
-            &FxHashMap::default(),
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_star() -> Result<()> {
-        let expr = parser::parse_expression("Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::from_iter([("typing.re", FxHashSet::from_iter(["*"]))]),
-            &FxHashMap::default()
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_parent() -> Result<()> {
-        let expr = parser::parse_expression("Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::from_iter([("typing.re", FxHashSet::from_iter(["Match"]))]),
-            &FxHashMap::default()
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_grandparent() -> Result<()> {
-        let expr = parser::parse_expression("re.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::from_iter([("typing", FxHashSet::from_iter(["re"]))]),
-            &FxHashMap::default()
-        ));
-
-        let expr = parser::parse_expression("match.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re.match",
-            "Match",
-            &FxHashMap::from_iter([("typing.re", FxHashSet::from_iter(["match"]))]),
-            &FxHashMap::default()
-        ));
-
-        let expr = parser::parse_expression("re.match.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re.match",
-            "Match",
-            &FxHashMap::from_iter([("typing", FxHashSet::from_iter(["re"]))]),
-            &FxHashMap::default()
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_alias() -> Result<()> {
-        let expr = parser::parse_expression("IMatch", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::from_iter([("typing.re", FxHashSet::from_iter(["Match"]))]),
-            &FxHashMap::from_iter([("IMatch", "Match")]),
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_aliased_parent() -> Result<()> {
-        let expr = parser::parse_expression("t.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::default(),
-            &FxHashMap::from_iter([("t", "typing.re")]),
-        ));
-        Ok(())
-    }
-
-    #[test]
-    fn from_aliased_grandparent() -> Result<()> {
-        let expr = parser::parse_expression("t.re.Match", "<filename>")?;
-        assert!(match_module_member(
-            &expr,
-            "typing.re",
-            "Match",
-            &FxHashMap::default(),
-            &FxHashMap::from_iter([("t", "typing")]),
-        ));
-        Ok(())
-    }
 
     #[test]
     fn trailing_content() -> Result<()> {

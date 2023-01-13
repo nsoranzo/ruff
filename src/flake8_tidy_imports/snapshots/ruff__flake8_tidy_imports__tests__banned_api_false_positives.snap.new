@@ -1,0 +1,18 @@
+---
+source: src/flake8_tidy_imports/mod.rs
+assertion_line: 95
+expression: diagnostics
+---
+- kind:
+    BannedApi:
+      name: typing.TypedDict
+      message: Use typing_extensions.TypedDict instead.
+  location:
+    row: 2
+    column: 7
+  end_location:
+    row: 2
+    column: 23
+  fix: ~
+  parent: ~
+

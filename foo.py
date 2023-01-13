@@ -1,9 +1,15 @@
-
-from collections import abc
-from typing import Annotated, Dict, Optional, Sequence, Union, Set
+from typing import overload
 
 
-def immutable_annotations(
-    b: Optional[abc.Mapping[int, int]] = {},
-):
-    pass
+@overload
+def foo(i: int) -> "int":
+    ...
+
+
+@overload
+def foo(i: "str") -> "str":
+    ...
+
+
+def foo(i):
+    return i
