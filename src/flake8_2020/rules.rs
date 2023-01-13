@@ -1,7 +1,7 @@
 use num_bigint::BigInt;
 use rustpython_ast::{Cmpop, Constant, Expr, ExprKind, Located};
 
-use crate::ast::types::Range;
+use crate::ast::types::{Range, Resolver};
 use crate::checkers::ast::Checker;
 use crate::registry::{Diagnostic, RuleCode};
 use crate::violations;

@@ -20,7 +20,8 @@ use crate::ast::helpers::{
 use crate::ast::operations::extract_all_names;
 use crate::ast::relocate::relocate_expr;
 use crate::ast::types::{
-    Binding, BindingKind, ClassDef, FunctionDef, Lambda, Node, Range, RefEquality, Scope, ScopeKind,
+    Binding, BindingKind, ClassDef, FunctionDef, Lambda, Node, Range, RefEquality, Resolver, Scope,
+    ScopeKind,
 };
 use crate::ast::visitor::{walk_excepthandler, Visitor};
 use crate::ast::{branch_detection, cast, helpers, operations, visitor};
@@ -202,26 +203,6 @@ impl<'a> Checker<'a> {
             .map(|index| &self.bindings[*index])
     }
 
-    pub fn resolve_call_path<'b>(&'a self, value: &'b Expr) -> Option<Vec<&'a str>>
-    where
-        'b: 'a,
-    {
-        let call_path = collect_call_paths(value);
-        if let Some(head) = call_path.first() {
-            if let Some(binding) = self.find_binding(head) {
-                if let BindingKind::Importation(.., name)
-                | BindingKind::SubmoduleImportation(name, ..)
-                | BindingKind::FromImportation(.., name) = &binding.kind
-                {
-                    let mut source_path: Vec<&str> = name.split('.').collect();
-                    source_path.extend(call_path.iter().skip(1));
-                    return Some(source_path);
-                }
-            }
-        }
-        None
-    }
-
     /// Return `true` if `member` is bound as a builtin.
     pub fn is_builtin(&self, member: &str) -> bool {
         self.find_binding(member).map_or(false, |binding| {
@@ -251,6 +232,28 @@ impl<'a> Checker<'a> {
             Directive::All(..) => true,
             Directive::Codes(.., codes) => noqa::includes(code, &codes),
         }
+    }
+}
+
+impl<'a, 'b> Resolver<'a, 'b> for Checker<'a>
+where
+    'b: 'a,
+{
+    fn resolve_call_path(&'a self, value: &'b Expr) -> Option<Vec<&'a str>> {
+        let call_path = collect_call_paths(value);
+        if let Some(head) = call_path.first() {
+            if let Some(binding) = self.find_binding(head) {
+                if let BindingKind::Importation(.., name)
+                | BindingKind::SubmoduleImportation(name, ..)
+                | BindingKind::FromImportation(.., name) = &binding.kind
+                {
+                    let mut source_path: Vec<&str> = name.split('.').collect();
+                    source_path.extend(call_path.iter().skip(1));
+                    return Some(source_path);
+                }
+            }
+        }
+        None
     }
 }
 
@@ -2077,13 +2080,9 @@ where
                     }
                 }
                 if self.settings.enabled.contains(&RuleCode::S113) {
-                    if let Some(diagnostic) = flake8_bandit::rules::request_without_timeout(
-                        func,
-                        args,
-                        keywords,
-                        &self.from_imports,
-                        &self.import_aliases,
-                    ) {
+                    if let Some(diagnostic) =
+                        flake8_bandit::rules::request_without_timeout(func, args, keywords, self)
+                    {
                         self.diagnostics.push(diagnostic);
                     }
                 }

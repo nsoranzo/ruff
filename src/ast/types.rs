@@ -235,3 +235,10 @@ impl<'a> From<&RefEquality<'a, Expr>> for &'a Expr {
         r.0
     }
 }
+
+pub trait Resolver<'a, 'b>
+where
+    'b: 'a,
+{
+    fn resolve_call_path(&'a self, value: &'b Expr) -> Option<Vec<&'a str>>;
+}
