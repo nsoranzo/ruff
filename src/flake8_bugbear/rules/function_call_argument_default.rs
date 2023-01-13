@@ -1,9 +1,6 @@
-use rustc_hash::{FxHashMap, FxHashSet};
 use rustpython_ast::{Arguments, Constant, Expr, ExprKind};
 
-use crate::ast::helpers::{
-    collect_call_paths, compose_call_path, dealias_call_path, match_call_path, to_module_and_member,
-};
+use crate::ast::helpers::{compose_call_path, to_module_and_member};
 use crate::ast::types::Range;
 use crate::ast::visitor;
 use crate::ast::visitor::Visitor;
@@ -23,23 +20,22 @@ const IMMUTABLE_FUNCS: [(&str, &str); 7] = [
 ];
 
 fn is_immutable_func(
+    checker: &Checker,
     expr: &Expr,
     extend_immutable_calls: &[(&str, &str)],
-    from_imports: &FxHashMap<&str, FxHashSet<&str>>,
-    import_aliases: &FxHashMap<&str, &str>,
 ) -> bool {
-    let call_path = dealias_call_path(collect_call_paths(expr), import_aliases);
-    IMMUTABLE_FUNCS
-        .iter()
-        .chain(extend_immutable_calls)
-        .any(|(module, member)| match_call_path(&call_path, module, member, from_imports))
+    checker.resolve_call_path(expr).map_or(false, |call_path| {
+        IMMUTABLE_FUNCS
+            .iter()
+            .chain(extend_immutable_calls)
+            .any(|(module, member)| call_path == [*module, *member])
+    })
 }
 
 struct ArgumentDefaultVisitor<'a> {
+    checker: &'a Checker<'a>,
     diagnostics: Vec<(DiagnosticKind, Range)>,
     extend_immutable_calls: &'a [(&'a str, &'a str)],
-    from_imports: &'a FxHashMap<&'a str, FxHashSet<&'a str>>,
-    import_aliases: &'a FxHashMap<&'a str, &'a str>,
 }
 
 impl<'a, 'b> Visitor<'b> for ArgumentDefaultVisitor<'b>
@@ -49,13 +45,8 @@ where
     fn visit_expr(&mut self, expr: &'b Expr) {
         match &expr.node {
             ExprKind::Call { func, args, .. } => {
-                if !is_mutable_func(func, self.from_imports, self.import_aliases)
-                    && !is_immutable_func(
-                        func,
-                        self.extend_immutable_calls,
-                        self.from_imports,
-                        self.import_aliases,
-                    )
+                if !is_mutable_func(self.checker, func)
+                    && !is_immutable_func(self.checker, func, self.extend_immutable_calls)
                     && !is_nan_or_infinity(func, args)
                 {
                     self.diagnostics.push((
@@ -104,20 +95,22 @@ pub fn function_call_argument_default(checker: &mut Checker, arguments: &Argumen
         .iter()
         .map(|target| to_module_and_member(target))
         .collect();
-    let mut visitor = ArgumentDefaultVisitor {
-        diagnostics: vec![],
-        extend_immutable_calls: &extend_immutable_cells,
-        from_imports: &checker.from_imports,
-        import_aliases: &checker.import_aliases,
+    let diagnostics = {
+        let mut visitor = ArgumentDefaultVisitor {
+            checker,
+            diagnostics: vec![],
+            extend_immutable_calls: &extend_immutable_cells,
+        };
+        for expr in arguments
+            .defaults
+            .iter()
+            .chain(arguments.kw_defaults.iter())
+        {
+            visitor.visit_expr(expr);
+        }
+        visitor.diagnostics
     };
-    for expr in arguments
-        .defaults
-        .iter()
-        .chain(arguments.kw_defaults.iter())
-    {
-        visitor.visit_expr(expr);
-    }
-    for (check, range) in visitor.diagnostics {
+    for (check, range) in diagnostics {
         checker.diagnostics.push(Diagnostic::new(check, range));
     }
 }

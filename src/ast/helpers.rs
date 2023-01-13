@@ -11,7 +11,7 @@ use rustpython_parser::lexer;
 use rustpython_parser::lexer::Tok;
 use rustpython_parser::token::StringKind;
 
-use crate::ast::types::{Binding, BindingKind, Range};
+use crate::ast::types::{Binding, BindingKind, Range, Scope};
 use crate::source_code::{Generator, Locator, Stylist};
 
 /// Create an `Expr` with default location from an `ExprKind`.
@@ -90,6 +90,28 @@ pub fn dealias_call_path<'a>(
         call_path
     }
 }
+// pub fn resolve_call_path<'a, 'b>(
+//     scopes: impl Iterator<Item = &'a Scope>,
+//     value: &'b Expr,
+// ) -> Option<Vec<&'a str>>
+// where
+//     'b: 'a,
+// {
+//     let call_path = collect_call_paths(value);
+//     if let Some(head) = call_path.first() {
+//         if let Some(binding) = self.find_binding(head) {
+//             if let BindingKind::Importation(.., name)
+//             | BindingKind::SubmoduleImportation(name, ..)
+//             | BindingKind::FromImportation(.., name) = &binding.kind
+//             {
+//                 let mut source_path: Vec<&str> = name.split('.').collect();
+//                 source_path.extend(call_path.iter().skip(1));
+//                 return Some(source_path);
+//             }
+//         }
+//     }
+//     None
+// }
 
 /// Return `true` if the `Expr` is a reference to `${module}.${target}`.
 ///
